@@ -1,0 +1,9 @@
+{
+  "name": "dharmesh/laravel-webrtc-sync",
+  "description": "Multi-location presentation sync with WebRTC and Redis",
+  "require": {
+    "php": ">=5.5.9",
+    "laravel/framework": "5.1.*",
+    "predis/predis": "^1.0"
+  }
+}
