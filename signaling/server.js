@@ -1,63 +1,52 @@
-// Node.js Signaling & WebRTC Relay Server
+// Node.js Signaling & WebRTC Relay Server with Redis Pub/Sub
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
+const redis = require('redis');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
 const PORT = process.env.PORT || 3000;
+const redisSub = redis.createClient();
 
-const rooms = {};
+redisSub.subscribe('presentation-events');
+
+redisSub.on('message', (channel, message) => {
+  try {
+    const payload = JSON.parse(message);
+    const roomId = payload.presentation_id;
+    // Broadcast instantly to all sockets in this presentation room
+    io.to('room-' + roomId).emit(payload.event, payload.data);
+  } catch (err) {
+    console.error('Error parsing redis message', err);
+  }
+});
 
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-
-  socket.on('join-room', (roomId, clientType) => {
-    socket.join(roomId);
-    if (!rooms[roomId]) rooms[roomId] = { presenter: null, venues: [], audience: [] };
-
-    if (clientType === 'presenter') {
-      rooms[roomId].presenter = socket.id;
-    } else if (clientType === 'venue') {
-      rooms[roomId].venues.push(socket.id);
-      // notify presenter about new physical venue
-      if (rooms[roomId].presenter) {
-        io.to(rooms[roomId].presenter).emit('venue-connected', { socketId: socket.id });
-      }
-    } else {
-      rooms[roomId].audience.push(socket.id);
-    }
+  socket.on('join-presentation', (presentationId, clientType) => {
+    const room = 'room-' + presentationId;
+    socket.join(room);
+    socket.clientType = clientType;
+    console.log(`Client ${socket.id} (${clientType}) joined ${room}`);
   });
 
-  // WebRTC SDP Offer / Answer relay
-  socket.on('webrtc-offer', (data) => {
-    io.to(data.targetSocketId).emit('webrtc-offer', {
-      fromSocketId: socket.id,
-      offer: data.offer
+  // Slide changed event from presenter socket
+  socket.on('change-slide', (data) => {
+    // broadcast directly to peers in room
+    socket.to('room-' + data.presentationId).emit('slide-updated', data);
+  });
+
+  // WebRTC signaling
+  socket.on('webrtc-signal', (data) => {
+    io.to(data.target).emit('webrtc-signal', {
+      sender: socket.id,
+      signal: data.signal
     });
-  });
-
-  socket.on('webrtc-answer', (data) => {
-    io.to(data.targetSocketId).emit('webrtc-answer', {
-      fromSocketId: socket.id,
-      answer: data.answer
-    });
-  });
-
-  socket.on('webrtc-ice-candidate', (data) => {
-    io.to(data.targetSocketId).emit('webrtc-ice-candidate', {
-      fromSocketId: socket.id,
-      candidate: data.candidate
-    });
-  });
-
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
   });
 });
 
 server.listen(PORT, () => {
-  console.log('WebRTC signaling server listening on port ' + PORT);
+  console.log('WebRTC Signaling + Redis subscriber running on port ' + PORT);
 });
