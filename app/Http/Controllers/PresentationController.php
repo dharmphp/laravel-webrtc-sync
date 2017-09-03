@@ -7,27 +7,21 @@ use Illuminate\Http\Request;
 
 class PresentationController extends Controller
 {
-    public function index()
+    public function showByCode($code)
     {
-        $presentations = Presentation::with('slides')->orderBy('created_at', 'desc')->get();
-        return view('presenter.list', compact('presentations'));
+        $presentation = Presentation::with(['slides', 'questions.options'])
+            ->where('access_code', strtoupper($code))
+            ->firstOrFail();
+
+        return view('audience.mobile', compact('presentation'));
     }
 
-    public function show($id)
+    public function venueDisplay($code)
     {
-        $presentation = Presentation::with('slides')->findOrFail($id);
-        return view('presenter.dashboard', compact('presentation'));
-    }
+        $presentation = Presentation::with('slides')
+            ->where('access_code', strtoupper($code))
+            ->firstOrFail();
 
-    public function store(Request $request)
-    {
-        $presentation = Presentation::create([
-            'title' => $request->input('title'),
-            'speaker_name' => $request->input('speaker_name', 'Speaker'),
-            'access_code' => strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 6)),
-            'status' => 'draft'
-        ]);
-
-        return redirect()->route('presentation.show', $presentation->id);
+        return view('hall.display', compact('presentation'));
     }
 }
